@@ -1,0 +1,253 @@
+#include <stdio.h>
+
+/*
+ ****************************************************************
+ *
+ ****************************************************************
+ */
+
+typedef unsigned short apm_base_t;
+typedef unsigned long apm_super_t;
+
+#define APM_BASE_ZERO		((apm_base_t) 0)
+#define APM_BASE_MAX		((apm_base_t) -1)
+#define APM_BASE_BIT_SIZE	(8 * sizeof(apm_base_t))
+#define APM_BASE_BIT_HALF_SIZE	(APM_BASE_BIT_SIZE / 2)
+#define APM_BASE_FULL		(APM_BASE_MAX)
+#define APM_BASE_HALF_FULL	(APM_BASE_FULL >> APM_BASE_BIT_HALF_SIZE)
+
+/*
+ ****************************************************************
+ *
+ ****************************************************************
+ */
+
+void apm_base_add(
+	apm_base_t *result,
+	apm_base_t *carry_out,
+	apm_base_t operand1,
+	apm_base_t operand2,
+	apm_base_t carry_in)
+{
+	*result = operand1 + operand2 + carry_in;
+
+	if(carry_in == APM_BASE_ZERO) {
+/* when carry_in is zero */
+		if(*result < operand1 || *result < operand2) {
+			*carry_out = 1;
+		} else {
+			*carry_out = 0;
+		}
+	} else {
+/* when carry_in is one */
+		if(*result <= operand1 || *result <= operand2) {
+			*carry_out = 1;
+		} else {
+			*carry_out = 0;
+		}
+	}
+
+	return;
+}
+void apm_base_subtract(
+	apm_base_t *result,
+	apm_base_t *carry_out,
+	apm_base_t operand1,
+	apm_base_t operand2,
+	apm_base_t carry_in)
+{
+	*result = - operand1 + operand2 - carry_in;
+
+	if(carry_in == APM_BASE_ZERO) {
+/* when carry_in is zero */
+		if(*result > operand2) {
+			*carry_out = 1;
+		} else {
+			*carry_out = 0;
+		}
+	} else {
+/* when carry_in is one */
+		if(*result >= operand2) {
+			*carry_out = 1;
+		} else {
+			*carry_out = 0;
+		}
+	}
+
+	return;
+}
+
+/*
+ ****************************************************************
+ *
+ ****************************************************************
+ */
+
+void apm_base_array_add(
+	apm_base_t *result,
+	apm_base_t *carry_out,
+	apm_base_t *short_operand,
+	int short_operand_length,
+	apm_base_t *long_operand,
+	int long_operand_length,
+	apm_base_t carry_in)
+{
+	int i;
+	apm_base_t carry;
+
+	carry = carry_in;
+	for(i = 0; i < short_operand_length; ++i) {
+		apm_base_add(
+			&result[i],
+			&carry,
+			short_operand[i],
+			long_operand[i],
+			carry);
+	}
+	for(i = 0; i < long_operand_length && carry != APM_BASE_ZERO; ++i) {
+		apm_base_add(
+			&result[i],
+			&carry,
+			APM_BASE_ZERO,
+			long_operand[i],
+			carry);
+	}
+	for(; i < long_operand_length; ++i) {
+		apm_base_add(
+			&result[i],
+			&carry,
+			APM_BASE_ZERO,
+			long_operand[i],
+			APM_BASE_ZERO);
+	}
+
+	*carry_out = carry;
+}
+void apm_base_array_subtract(
+	apm_base_t *result,
+	apm_base_t *carry_out,
+	apm_base_t *short_operand,
+	int short_operand_length,
+	apm_base_t *long_operand,
+	int long_operand_length,
+	apm_base_t carry_in)
+{
+	int i;
+	apm_base_t carry;
+
+	carry = carry_in;
+	for(i = 0; i < short_operand_length; ++i) {
+		apm_base_subtract(
+			&result[i],
+			&carry,
+			short_operand[i],
+			long_operand[i],
+			carry);
+	}
+	for(i = 0; i < long_operand_length && carry != APM_BASE_ZERO; ++i) {
+		apm_base_subtract(
+			&result[i],
+			&carry,
+			APM_BASE_ZERO,
+			long_operand[i],
+			carry);
+	}
+	for(; i < long_operand_length; ++i) {
+		apm_base_subtract(
+			&result[i],
+			&carry,
+			APM_BASE_ZERO,
+			long_operand[i],
+			APM_BASE_ZERO);
+	}
+
+	*carry_out = carry;
+}
+
+/*
+ ****************************************************************
+ *
+ ****************************************************************
+ */
+
+void apm_base_multiply(
+	apm_base_t *lower,
+	apm_base_t *upper,
+	apm_base_t operand1,
+	apm_base_t operand2)
+{
+	apm_super_t temp;
+
+	temp = (apm_super_t)operand1 * (apm_super_t)operand2;
+	*lower = temp >> APM_BASE_BIT_SIZE;
+	*upper = temp & APM_BASE_FULL;
+
+	return;
+}
+void apm_base_divide(
+	apm_base_t *quotient,
+	apm_base_t *remainder,
+	apm_base_t operand,
+	apm_base_t lower,
+	apm_base_t upper)
+{
+	apm_super_t temp;
+
+	temp = (apm_super_t)lower | ((apm_super_t)upper << APM_BASE_BIT_SIZE);
+	*quotient = temp / (apm_super_t)operand;
+	*remainder = temp % (apm_super_t)operand;
+
+	return;
+}
+/*
+ ****************************************************************
+ *
+ ****************************************************************
+ */
+void apm_base_array_multiply(
+	apm_base_t *result,
+	apm_base_t *short_operand,
+	int short_operand_length,
+	apm_base_t *long_operand,
+	int long_operand_length)
+{
+	int i, j;
+	int result_length;
+	apm_base_t carry;
+
+	result_length = short_operand_length + long_operand_length;
+	for(i = 0; i < result_length; ++i) {
+		result[i] = APM_BASE_ZERO;
+	}
+
+	for(i = 0; i < short_operand_length; ++i) {
+		for(j = 0; j < long_operand_length; ++j) {
+			apm_base_t temp[2];
+
+			apm_base_multiply(
+				&temp[0],
+				&temp[1],
+				short_operand[i],
+				long_operand[j]);
+			apm_base_array_add(
+				&result[i + j],
+				temp,
+				2,
+				&result[i + j],
+				result_length - (i + j),
+				APM_BASE_ZERO);
+		}
+	}
+}
+
+
+/*
+ ****************************************************************
+ *
+ ****************************************************************
+ */
+
+int main(int argc, char *argv[])
+{
+	printf("hello, world\n");
+}
